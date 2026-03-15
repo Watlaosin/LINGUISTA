@@ -71,6 +71,7 @@ class SignLanguagePredictor:
         self.model.eval()
 
         self.sequence = deque(maxlen=self.sequence_length)
+        self.prediction_history = deque(maxlen=10)
 
         self.mp_holistic = mp.solutions.holistic
         self.mp_drawing = mp.solutions.drawing_utils
@@ -118,12 +119,11 @@ class SignLanguagePredictor:
             for i in top_indices
         ]
 
-    def process_frame(self, frame):
-        frame = cv2.flip(frame, 1)
+    def process_frame(self, frame, draw_landmarks=True):
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         results = self.holistic.process(rgb)
 
-        if results.pose_landmarks:
+        if draw_landmarks and results.pose_landmarks:
             self.mp_drawing.draw_landmarks(
                 frame,
                 results.pose_landmarks,
@@ -131,7 +131,7 @@ class SignLanguagePredictor:
                 landmark_drawing_spec=self.mp_drawing_styles.get_default_pose_landmarks_style()
             )
 
-        if results.left_hand_landmarks:
+        if draw_landmarks and results.left_hand_landmarks:
             self.mp_drawing.draw_landmarks(
                 frame,
                 results.left_hand_landmarks,
@@ -140,7 +140,7 @@ class SignLanguagePredictor:
                 self.mp_drawing_styles.get_default_hand_connections_style()
             )
 
-        if results.right_hand_landmarks:
+        if draw_landmarks and results.right_hand_landmarks:
             self.mp_drawing.draw_landmarks(
                 frame,
                 results.right_hand_landmarks,
@@ -158,7 +158,10 @@ class SignLanguagePredictor:
             "frames_collected": len(self.sequence),
             "frames_needed": self.sequence_length,
             "prediction": "Collecting...",
+            "raw_label": None,
+            "display_label": None,
             "confidence": 0.0,
+            "is_confident": False,
             "top3": []
         }
 
@@ -175,13 +178,17 @@ class SignLanguagePredictor:
                 pred_label = str(self.label_names[pred_idx])
                 conf = float(probs[pred_idx])
 
-                pred_display = thai_to_eng.get(pred_label, pred_label)
+                self.prediction_history.append(pred_label)
+                stable_pred = max(set(self.prediction_history), key=self.prediction_history.count)
 
-                prediction["prediction"] = (
-                    pred_display if conf >= self.confidence_threshold
-                    else f"Uncertain ({pred_display})"
-                )
+                pred_display = thai_to_eng.get(stable_pred, stable_pred)
+                is_confident = conf >= self.confidence_threshold
+
+                prediction["raw_label"] = stable_pred
+                prediction["display_label"] = pred_display
+                prediction["prediction"] = pred_display if is_confident else f"Uncertain ({pred_display})"
                 prediction["confidence"] = conf
+                prediction["is_confident"] = is_confident
                 prediction["top3"] = self.format_top_k(probs)
 
             except Exception as e:
@@ -192,6 +199,7 @@ class SignLanguagePredictor:
 
     def clear_sequence(self):
         self.sequence.clear()
+        self.prediction_history.clear()
 
     def close(self):
         self.holistic.close()

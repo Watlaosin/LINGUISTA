@@ -1,434 +1,135 @@
-import streamlit as st
-import av
+import math
 import threading
 import time
-import streamlit.components.v1 as components
-from textwrap import dedent
-from streamlit_webrtc import webrtc_streamer, VideoProcessorBase
+from pathlib import Path
+
+import av
+import cv2
+import streamlit as st
 from streamlit_autorefresh import st_autorefresh
+from streamlit_webrtc import VideoProcessorBase, webrtc_streamer
+
 from sign_predictor import SignLanguagePredictor
 
-st.set_page_config(page_title="AI Sign Language Detector", layout="wide")
 
-if "page" not in st.session_state:
+st.set_page_config(
+    page_title="Linguista",
+    page_icon="🙌",
+    layout="centered",
+    initial_sidebar_state="collapsed",
+)
+
+BASE_DIR = Path(__file__).parent
+
+# =========================
+# Query-param page sync
+# =========================
+query_page = st.query_params.get("page", "home")
+if query_page not in {"home", "demo", "stage"}:
+    query_page = "home"
+
+
+# =========================
+# Session State
+# =========================
+def init_session_state():
+    defaults = {
+        "page": query_page,
+        "stage_index": 0,
+        "stage_started": False,
+        "stage_start_time": None,
+        "stage_status": "idle",
+        "stage_feedback": "",
+        "stage_balloons_shown": False,
+    }
+    for key, value in defaults.items():
+        if key not in st.session_state:
+            st.session_state[key] = value
+
+
+init_session_state()
+
+st.session_state.page = st.query_params.get("page", st.session_state.page)
+if st.session_state.page not in {"home", "demo", "stage"}:
     st.session_state.page = "home"
 
-if "stage_index" not in st.session_state:
-    st.session_state.stage_index = 0
 
-if "stage_started" not in st.session_state:
-    st.session_state.stage_started = False
-
-if "stage_start_time" not in st.session_state:
-    st.session_state.stage_start_time = None
-
-if "stage_status" not in st.session_state:
-    st.session_state.stage_status = "idle"
-
-if "stage_feedback" not in st.session_state:
-    st.session_state.stage_feedback = ""
-
-
-def html(block: str):
-    st.markdown(dedent(block), unsafe_allow_html=True)
-
-
+# =========================
+# Data
+# =========================
 STAGES = [
-    {"target": "Hungry", "label": "Hungry"},
-    {"target": "Sleepy", "label": "Sleepy"},
-    {"target": "Drink", "label": "Drink"},
-    {"target": "Yes", "label": "Yes"},
+    {
+        "target": "Hungry",
+        "label": "Hungry",
+        "video": BASE_DIR / "assets" / "demo_videos" / "hungry.mp4",
+    },
+    {
+        "target": "Sleepy",
+        "label": "Sleepy",
+        "video": BASE_DIR / "assets" / "demo_videos" / "sleepy.mp4",
+    },
+    {
+        "target": "Drink",
+        "label": "Drink",
+        "video": BASE_DIR / "assets" / "demo_videos" / "drink.mp4",
+    },
+    {
+        "target": "Yes",
+        "label": "Yes",
+        "video": BASE_DIR / "assets" / "demo_videos" / "yes.mp4",
+    },
+]
+
+SUCCESS_MESSAGES = [
+    "Amazing! 🌟",
+    "Nice one! 🎉",
+    "So good! 💖",
+    "You got it! ✨",
+]
+
+FAIL_MESSAGES = [
+    "Almost there! 🌈",
+    "Try again! 💪",
+    "One more time! 🫶",
+    "Keep going! ✨",
 ]
 
 
-st.markdown("""
-<style>
-    html, body, [class*="css"] {
-        font-family: "Segoe UI", sans-serif;
-    }
-
-    .stApp {
-        background:
-            radial-gradient(circle at 20% 20%, rgba(129, 212, 250, 0.25), transparent 25%),
-            radial-gradient(circle at 80% 30%, rgba(56, 189, 248, 0.22), transparent 22%),
-            radial-gradient(circle at 50% 80%, rgba(125, 211, 252, 0.18), transparent 25%),
-            linear-gradient(135deg, #eef9ff 0%, #dff2ff 40%, #caeaff 100%);
-        color: #12324a;
-        overflow-x: hidden;
-    }
-
-    header[data-testid="stHeader"] {
-        background: transparent !important;
-        height: 0rem !important;
-    }
-
-    div[data-testid="stToolbar"] {
-        visibility: hidden;
-        height: 0%;
-        position: fixed;
-    }
-
-    .block-container {
-        padding-top: 0.8rem !important;
-        padding-bottom: 1.2rem !important;
-        padding-left: 3rem !important;
-        padding-right: 3rem !important;
-        max-width: 100% !important;
-    }
-
-    .main .block-container {
-        max-width: 100% !important;
-    }
-
-    section.main > div {
-        max-width: 100% !important;
-    }
-
-    .nav-wrap {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 8px 4px 18px 4px;
-        animation: fadeDown 0.7s ease;
-    }
-
-    .nav-logo {
-        font-size: 1.15rem;
-        font-weight: 800;
-        color: #0c4a6e;
-        letter-spacing: 0.2px;
-    }
-
-    .nav-tag {
-        color: #4a7895;
-        font-size: 0.92rem;
-        font-weight: 600;
-    }
-
-    .eyebrow {
-        display: inline-flex;
-        align-items: center;
-        gap: 10px;
-        background: rgba(255,255,255,0.65);
-        border: 1px solid rgba(160, 220, 255, 0.65);
-        border-radius: 999px;
-        padding: 10px 16px;
-        color: #0b5f8a;
-        font-weight: 700;
-        margin-bottom: 18px;
-        box-shadow: 0 8px 25px rgba(65, 140, 190, 0.10);
-    }
-
-    .eyebrow-dot {
-        width: 10px;
-        height: 10px;
-        border-radius: 50%;
-        background: #38bdf8;
-        animation: pulse 1.5s infinite;
-    }
-
-    .hero-title {
-        font-size: 4rem;
-        line-height: 1.02;
-        font-weight: 900;
-        color: #093b5b;
-        margin-bottom: 16px;
-        letter-spacing: -1.3px;
-        animation: fadeUp 1s ease;
-    }
-
-    .hero-highlight {
-        background: linear-gradient(90deg, #0284c7, #38bdf8, #0ea5e9);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        background-size: 200% auto;
-        animation: shimmer 4s linear infinite;
-    }
-
-    .hero-subtitle {
-        font-size: 1.15rem;
-        line-height: 1.75;
-        color: #416d89;
-        max-width: 760px;
-        margin-bottom: 26px;
-        animation: fadeUp 1.15s ease;
-    }
-
-    .features-wrap {
-        margin-top: 34px;
-        animation: fadeUp 1.45s ease;
-    }
-
-    .features-grid {
-        display: grid;
-        grid-template-columns: repeat(3, 1fr);
-        gap: 22px;
-    }
-
-    .feature-card {
-        background: rgba(255,255,255,0.68);
-        border: 1px solid rgba(160, 220, 255, 0.5);
-        border-radius: 24px;
-        padding: 24px;
-        box-shadow: 0 12px 30px rgba(44, 111, 161, 0.10);
-        transition: transform 0.25s ease, box-shadow 0.25s ease;
-        animation: fadeUp 0.8s ease;
-        min-height: 200px;
-    }
-
-    .feature-card:hover {
-        transform: translateY(-6px) scale(1.01);
-        box-shadow: 0 18px 36px rgba(44, 111, 161, 0.16);
-    }
-
-    .feature-icon {
-        width: 56px;
-        height: 56px;
-        border-radius: 16px;
-        background: linear-gradient(135deg, #d9f3ff, #a7e1ff);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 1.4rem;
-        margin-bottom: 14px;
-        box-shadow: inset 0 1px 0 rgba(255,255,255,0.65);
-    }
-
-    .feature-title {
-        font-size: 1.12rem;
-        font-weight: 800;
-        color: #0f4c75;
-        margin-bottom: 8px;
-    }
-
-    .feature-text {
-        color: #5a8099;
-        line-height: 1.75;
-        font-size: 0.98rem;
-    }
-
-    .section-title {
-        font-size: 1.15rem;
-        font-weight: 700;
-        color: #0f4c75;
-        margin-bottom: 0.8rem;
-    }
-
-    .glass-card {
-        background: rgba(255, 255, 255, 0.62);
-        border: 1px solid rgba(255, 255, 255, 0.55);
-        backdrop-filter: blur(10px);
-        -webkit-backdrop-filter: blur(10px);
-        border-radius: 24px;
-        padding: 18px 20px;
-        box-shadow: 0 10px 30px rgba(30, 90, 140, 0.12);
-        animation: fadeUp 0.6s ease;
-    }
-
-    .prediction-main {
-        font-size: 2rem;
-        font-weight: 800;
-        color: #0077b6;
-        line-height: 1.1;
-        margin-bottom: 0.2rem;
-        animation: glowPulse 1.8s ease-in-out infinite;
-    }
-
-    .prediction-label {
-        color: #4a7895;
-        font-size: 0.95rem;
-        margin-bottom: 0.8rem;
-    }
-
-    .mini-grid {
-        display: grid;
-        grid-template-columns: 1fr 1fr;
-        gap: 14px;
-        margin-top: 10px;
-        margin-bottom: 14px;
-    }
-
-    .mini-card {
-        background: linear-gradient(180deg, rgba(255,255,255,0.92), rgba(238,248,255,0.92));
-        border-radius: 18px;
-        padding: 16px;
-        border: 1px solid rgba(140, 200, 235, 0.45);
-        box-shadow: 0 6px 18px rgba(80, 150, 210, 0.10);
-    }
-
-    .mini-title {
-        color: #5682a1;
-        font-size: 0.85rem;
-        margin-bottom: 4px;
-    }
-
-    .mini-value {
-        color: #0b5f8a;
-        font-size: 1.2rem;
-        font-weight: 700;
-    }
-
-    .status-row {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        margin-bottom: 12px;
-    }
-
-    .pulse-dot {
-        width: 12px;
-        height: 12px;
-        border-radius: 999px;
-        background: #38bdf8;
-        box-shadow: 0 0 0 rgba(56,189,248, 0.5);
-        animation: pulse 1.6s infinite;
-    }
-
-    .status-text {
-        color: #3d6b88;
-        font-weight: 600;
-    }
-
-    .top3-item {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        background: rgba(255,255,255,0.72);
-        border: 1px solid rgba(150, 205, 235, 0.35);
-        border-radius: 16px;
-        padding: 14px 16px;
-        margin-bottom: 10px;
-        animation: fadeUp 0.4s ease;
-    }
-
-    .top3-name {
-        font-weight: 700;
-        color: #0f4c75;
-    }
-
-    .top3-score {
-        color: #0077b6;
-        font-weight: 700;
-    }
-
-    video {
-        width: 100% !important;
-        height: auto !important;
-        max-height: 360px !important;
-        object-fit: contain !important;
-        border-radius: 20px !important;
-        background: #dcebfa !important;
-        box-shadow: 0 10px 30px rgba(30, 90, 140, 0.14) !important;
-    }
-
-    div[data-testid="stVideo"] video {
-        max-height: 360px !important;
-        object-fit: contain !important;
-    }
-
-    @keyframes pulse {
-        0% {
-            transform: scale(0.95);
-            box-shadow: 0 0 0 0 rgba(56,189,248, 0.55);
-        }
-        70% {
-            transform: scale(1);
-            box-shadow: 0 0 0 14px rgba(56,189,248, 0);
-        }
-        100% {
-            transform: scale(0.95);
-            box-shadow: 0 0 0 0 rgba(56,189,248, 0);
-        }
-    }
-
-    @keyframes fadeUp {
-        from {
-            opacity: 0;
-            transform: translateY(18px);
-        }
-        to {
-            opacity: 1;
-            transform: translateY(0);
-        }
-    }
-
-    @keyframes fadeDown {
-        from {
-            opacity: 0;
-            transform: translateY(-16px);
-        }
-        to {
-            opacity: 1;
-            transform: translateY(0);
-        }
-    }
-
-    @keyframes glowPulse {
-        0% { text-shadow: 0 0 0 rgba(0,119,182,0); }
-        50% { text-shadow: 0 0 18px rgba(56,189,248,0.26); }
-        100% { text-shadow: 0 0 0 rgba(0,119,182,0); }
-    }
-
-    @keyframes shimmer {
-        0% { background-position: 0% center; }
-        100% { background-position: 200% center; }
-    }
-
-    @media (max-width: 1100px) {
-        .hero-title {
-            font-size: 3rem;
-        }
-
-        .features-grid {
-            grid-template-columns: 1fr;
-        }
-    }
-</style>
-""", unsafe_allow_html=True)
-
-
-class VideoProcessor(VideoProcessorBase):
-    def __init__(self):
-        self.predictor = SignLanguagePredictor(confidence_threshold=0.2)
-        self.result = {
-            "frames_collected": 0,
-            "frames_needed": 45,
-            "prediction": "Collecting...",
-            "confidence": 0.0,
-            "top3": []
-        }
-        self.lock = threading.Lock()
-
-    def recv(self, frame):
-        img = frame.to_ndarray(format="bgr24")
-        processed_frame, result = self.predictor.process_frame(img)
-
-        with self.lock:
-            self.result = result.copy()
-
-        return av.VideoFrame.from_ndarray(processed_frame, format="bgr24")
+# =========================
+# Navigation helpers
+# =========================
+def set_page(page_name: str):
+    st.session_state.page = page_name
+    st.query_params["page"] = page_name
 
 
 def go_home():
-    st.session_state.page = "home"
+    set_page("home")
+
 
 def go_demo():
-    st.session_state.page = "demo"
+    set_page("demo")
+
 
 def go_stage():
-    st.session_state.page = "stage"
+    set_page("stage")
+
 
 def start_stage():
     st.session_state.stage_started = True
     st.session_state.stage_start_time = time.time()
     st.session_state.stage_status = "running"
     st.session_state.stage_feedback = ""
+    st.session_state.stage_balloons_shown = False
+
 
 def reset_stage():
     st.session_state.stage_started = False
     st.session_state.stage_start_time = None
     st.session_state.stage_status = "idle"
     st.session_state.stage_feedback = ""
+    st.session_state.stage_balloons_shown = False
+
 
 def next_stage():
     if st.session_state.stage_index < len(STAGES) - 1:
@@ -436,433 +137,1022 @@ def next_stage():
     reset_stage()
 
 
+# =========================
+# Reusable UI helpers
+# =========================
+def card(title: str, body: str):
+    st.markdown(
+        f"""
+        <div class="card">
+            <div class="card-title">{title}</div>
+            <div class="card-body">{body}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def pill(text: str, cls: str = ""):
+    st.markdown(
+        f"""<div class="pill {cls}">{text}</div>""",
+        unsafe_allow_html=True,
+    )
+
+
+def app_link(label: str, page: str, variant: str = ""):
+    st.markdown(
+        f"""
+        <a class="app-link {variant}" href="/?page={page}" target="_self">
+            {label}
+        </a>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def bottom_nav_item(icon: str, page: str, variant: str = "", active: bool = False):
+    active_class = "active" if active else ""
+    return (
+        f'<a class="bottom-nav-link {variant} {active_class}" '
+        f'href="/?page={page}" target="_self" aria-label="{page}">'
+        f'<span class="bottom-nav-icon">{icon}</span>'
+        f"</a>"
+    )
+
+
+def create_camera_stream(key: str):
+    return webrtc_streamer(
+        key=key,
+        video_processor_factory=VideoProcessor,
+        media_stream_constraints={
+            "video": {
+                "width": {"ideal": 480},
+                "height": {"ideal": 640},
+                "frameRate": {"ideal": 12},
+                "facingMode": "user",
+            },
+            "audio": False,
+        },
+        async_processing=True,
+    )
+
+
+def show_stage_demo(video_path, target_sign: str):
+    if video_path and Path(video_path).exists():
+        st.markdown(
+            f"""
+            <div class="card" style="padding:12px 16px;">
+                <div class="card-title">Demo Clip</div>
+                <div class="card-body">Watch how to sign <b>{target_sign}</b> before starting.</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+        st.video(str(video_path))
+    else:
+        card(
+            "Demo clip missing 🎬",
+            f"Add a video file for {target_sign} in assets/demo_videos.",
+        )
+
+
+# =========================
+# Styling
+# =========================
+st.markdown(
+    """
+<style>
+    @import url('https://fonts.googleapis.com/css2?family=UnifrakturCook:wght@700&display=swap');
+
+    :root {
+        --chocolate-kisses: #45151B;
+        --mauvelous: #EA9DAE;
+        --royal-orange: #F99256;
+        --bittersweet-shimmer: #C74E51;
+        --caramel: #FBDE9C;
+        --soft-rose: #F8D9E0;
+        --text-soft: #6C3C42;
+        --text-mid: #7A3340;
+        --white-glass: rgba(255,255,255,0.82);
+        --nav-dark: rgba(22, 35, 48, 0.96);
+    }
+
+    #MainMenu {visibility: hidden;}
+    header {visibility: hidden;}
+    footer {visibility: hidden;}
+    [data-testid="stToolbar"] {display:none !important;}
+    [data-testid="collapsedControl"] {display:none !important;}
+
+    html, body, [class*="css"] {
+        font-family: "Avenir Next", "SF Pro Display", "Segoe UI", sans-serif;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+    }
+
+    a {
+        text-decoration: none !important;
+    }
+
+    .stApp {
+        background:
+            radial-gradient(circle at top left, rgba(249,146,86,0.15), transparent 30%),
+            radial-gradient(circle at top right, rgba(234,157,174,0.18), transparent 28%),
+            linear-gradient(180deg, #FBDE9C 0%, #F7CFA8 45%, #EA9DAE 100%);
+        color: var(--chocolate-kisses);
+    }
+
+    .main .block-container {
+        max-width: 430px;
+        padding-top: 1rem;
+        padding-bottom: 7.6rem;
+        padding-left: 1rem;
+        padding-right: 1rem;
+    }
+
+    .brand-logo-box {
+        width: 90px;
+        height: 90px;
+        margin: 0 auto 14px auto;
+        border-radius: 50%;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        position: relative;
+        background: linear-gradient(145deg, #ffffff, #ffe9dd);
+        border: 3px solid var(--chocolate-kisses);
+        box-shadow:
+            0 12px 26px rgba(69,21,27,0.25),
+            inset 0 3px 6px rgba(255,255,255,0.6),
+            inset 0 -3px 6px rgba(0,0,0,0.08);
+        animation: logoFloat 2.6s ease-in-out infinite;
+    }
+
+    .brand-logo-box::after {
+        content: "";
+        position: absolute;
+        top: 6px;
+        left: 10px;
+        width: 60%;
+        height: 35%;
+        border-radius: 50%;
+        background: radial-gradient(
+            ellipse at center,
+            rgba(255,255,255,0.9),
+            rgba(255,255,255,0)
+        );
+        opacity: 0.7;
+        pointer-events: none;
+    }
+
+    .top-brand {
+        background: var(--chocolate-kisses);
+        color: var(--mauvelous);
+        border-radius: 30px;
+        padding: 1.15rem 1.15rem 1.1rem 1.15rem;
+        box-shadow: 0 12px 28px rgba(69,21,27,0.18);
+        margin-bottom: 12px;
+        text-align: center;
+    }
+
+    .brand-letter {
+        text-align: center;
+        font-size: 3.8rem;
+        line-height: 1;
+        color: var(--bittersweet-shimmer);
+        font-family: 'UnifrakturCook', serif;
+        -webkit-text-stroke: 0.8px black;
+        text-shadow: 0 2px 6px rgba(0,0,0,0.35);
+        user-select: none;
+        transform: translateY(-1px);
+    }
+
+    .brand-title {
+        font-size: 1.78rem;
+        font-weight: 900;
+        line-height: 1.05;
+        letter-spacing: -0.45px;
+        color: var(--mauvelous);
+        margin-top: 0.1rem;
+    }
+
+    .brand-sub {
+        margin-top: 6px;
+        color: var(--mauvelous);
+        font-size: 0.95rem;
+        line-height: 1.4;
+    }
+
+    .hero-card {
+        background: rgba(255,255,255,0.76);
+        backdrop-filter: blur(12px);
+        -webkit-backdrop-filter: blur(12px);
+        border-radius: 28px;
+        padding: 18px;
+        border: 2px solid rgba(255,255,255,0.4);
+        box-shadow: 0 8px 24px rgba(69,21,27,0.10);
+        margin-bottom: 12px;
+    }
+
+    .hero-title {
+        font-size: 2rem;
+        font-weight: 900;
+        color: var(--chocolate-kisses);
+        line-height: 1.02;
+        margin-bottom: 8px;
+    }
+
+    .hero-text {
+        color: var(--text-mid);
+        font-size: 1rem;
+        line-height: 1.5;
+    }
+
+    .card {
+        background: var(--white-glass);
+        backdrop-filter: blur(10px);
+        -webkit-backdrop-filter: blur(10px);
+        border-radius: 24px;
+        padding: 16px;
+        box-shadow: 0 8px 20px rgba(69,21,27,0.10);
+        border: 1.5px solid rgba(255,255,255,0.45);
+        margin-bottom: 12px;
+    }
+
+    .card-title {
+        font-size: 1rem;
+        font-weight: 900;
+        color: var(--chocolate-kisses);
+        margin-bottom: 8px;
+    }
+
+    .card-body {
+        color: var(--text-soft);
+        line-height: 1.45;
+    }
+
+    .pill {
+        display: inline-block;
+        background: var(--royal-orange);
+        color: white;
+        border-radius: 999px;
+        padding: 8px 12px;
+        font-size: 0.82rem;
+        font-weight: 900;
+        margin-bottom: 10px;
+        box-shadow: 0 4px 12px rgba(69,21,27,0.08);
+    }
+
+    .pill.soft {
+        background: var(--mauvelous);
+        color: var(--chocolate-kisses);
+    }
+
+    .pill.yellow {
+        background: var(--caramel);
+        color: var(--chocolate-kisses);
+    }
+
+    .prediction-card {
+        background: linear-gradient(180deg, rgba(69,21,27,0.96), rgba(102,28,38,0.96));
+        color: var(--caramel);
+        border-radius: 28px;
+        padding: 18px;
+        box-shadow: 0 12px 28px rgba(69,21,27,0.20);
+        margin-bottom: 12px;
+    }
+
+    .prediction-label {
+        color: var(--soft-rose);
+        font-size: 0.9rem;
+        font-weight: 700;
+        margin-bottom: 8px;
+    }
+
+    .prediction-value {
+        font-size: 2rem;
+        font-weight: 900;
+        line-height: 1.05;
+        word-break: break-word;
+    }
+
+    .stats-grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 10px;
+        margin-bottom: 12px;
+    }
+
+    .stat-box {
+        background: rgba(255,255,255,0.8);
+        border-radius: 22px;
+        padding: 14px;
+        box-shadow: 0 8px 20px rgba(69,21,27,0.08);
+        border: 1px solid rgba(255,255,255,0.35);
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
+    }
+
+    .stat-title {
+        font-size: 0.82rem;
+        color: #A74B5A;
+        font-weight: 800;
+    }
+
+    .stat-value {
+        font-size: 1.25rem;
+        color: var(--chocolate-kisses);
+        font-weight: 900;
+        margin-top: 6px;
+    }
+
+    .top-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        background: #F8E4B8;
+        border-radius: 20px;
+        padding: 12px 14px;
+        margin-bottom: 8px;
+        border: 1px solid rgba(69,21,27,0.08);
+    }
+
+    .top-name {
+        font-weight: 900;
+        color: var(--chocolate-kisses);
+    }
+
+    .top-score {
+        font-weight: 900;
+        color: var(--bittersweet-shimmer);
+    }
+
+    .stage-target {
+        background: linear-gradient(180deg, var(--mauvelous), #F7B4C0);
+        border-radius: 28px;
+        padding: 18px;
+        text-align: center;
+        box-shadow: 0 10px 24px rgba(199,78,81,0.14);
+        margin-bottom: 12px;
+    }
+
+    .stage-kicker {
+        font-size: 0.9rem;
+        font-weight: 800;
+        color: var(--text-mid);
+        margin-bottom: 8px;
+    }
+
+    .stage-word {
+        font-size: 2rem;
+        font-weight: 900;
+        color: var(--chocolate-kisses);
+        line-height: 1.05;
+    }
+
+    .timer-box {
+        background: rgba(255,255,255,0.8);
+        border-radius: 24px;
+        text-align: center;
+        padding: 14px;
+        margin-bottom: 12px;
+        box-shadow: 0 8px 20px rgba(69,21,27,0.08);
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
+    }
+
+    .timer-value {
+        font-size: 2rem;
+        font-weight: 900;
+        color: var(--bittersweet-shimmer);
+    }
+
+    .feedback-success {
+        background: var(--bittersweet-shimmer);
+        color: white;
+        border-radius: 22px;
+        padding: 14px 16px;
+        font-weight: 900;
+        text-align: center;
+        margin-bottom: 12px;
+    }
+
+    .feedback-fail {
+        background: var(--royal-orange);
+        color: white;
+        border-radius: 22px;
+        padding: 14px 16px;
+        font-weight: 900;
+        text-align: center;
+        margin-bottom: 12px;
+    }
+
+    .tiny-note {
+        text-align: center;
+        color: var(--text-soft);
+        font-size: 0.84rem;
+        margin-top: 10px;
+        margin-bottom: 8px;
+    }
+
+    video {
+        width: 78% !important;
+        max-width: 320px !important;
+        height: auto !important;
+        margin: 0 auto !important;
+        display: block !important;
+        border-radius: 24px !important;
+        object-fit: cover !important;
+        background: var(--chocolate-kisses) !important;
+        box-shadow: 0 10px 26px rgba(69,21,27,0.18) !important;
+        border: 2px solid rgba(255,255,255,0.22) !important;
+    }
+
+    .stButton > button {
+        width: 100%;
+        border: none !important;
+        border-radius: 999px !important;
+        height: 58px !important;
+        padding: 0.9rem 1rem !important;
+        font-size: 1.05rem !important;
+        font-weight: 900 !important;
+        letter-spacing: 0.3px !important;
+        background: var(--chocolate-kisses) !important;
+        color: var(--mauvelous) !important;
+        box-shadow:
+            0 10px 22px rgba(69,21,27,0.18),
+            inset 0 -3px 0 rgba(0,0,0,0.16),
+            inset 0 1px 0 rgba(255,255,255,0.05) !important;
+        transition:
+            transform 0.12s ease,
+            filter 0.12s ease,
+            box-shadow 0.12s ease !important;
+    }
+
+    .stButton > button:hover {
+        transform: translateY(-2px) scale(1.015);
+        filter: brightness(1.04);
+    }
+
+    .stButton > button:active {
+        transform: translateY(1px) scale(0.985);
+    }
+
+    .stButton > button:focus,
+    .stButton > button:focus-visible {
+        outline: none !important;
+        box-shadow:
+            0 0 0 3px rgba(255,255,255,0.28),
+            0 10px 22px rgba(69,21,27,0.18),
+            inset 0 -3px 0 rgba(0,0,0,0.16) !important;
+    }
+
+    .app-link {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 100%;
+        height: 58px;
+        border-radius: 999px;
+        font-size: 1.05rem;
+        font-weight: 900;
+        letter-spacing: 0.3px;
+        text-decoration: none !important;
+        box-shadow:
+            0 10px 22px rgba(69,21,27,0.18),
+            inset 0 -3px 0 rgba(0,0,0,0.16),
+            inset 0 1px 0 rgba(255,255,255,0.05);
+        transition: transform 0.12s ease, filter 0.12s ease;
+        user-select: none;
+        -webkit-tap-highlight-color: transparent;
+    }
+
+    .app-link:hover {
+        transform: translateY(-2px) scale(1.015);
+        filter: brightness(1.04);
+    }
+
+    .app-link:active {
+        transform: translateY(1px) scale(0.985);
+    }
+
+    .app-link.freestyle-link {
+        background: var(--royal-orange);
+        color: var(--chocolate-kisses) !important;
+    }
+
+    .app-link.stage-link {
+        background: var(--bittersweet-shimmer);
+        color: var(--caramel) !important;
+    }
+
+    .nav-wrap {
+        position: fixed;
+        left: 50%;
+        transform: translateX(-50%);
+        bottom: 10px;
+        width: min(410px, calc(100vw - 20px));
+        background: var(--nav-dark);
+        backdrop-filter: blur(18px);
+        -webkit-backdrop-filter: blur(18px);
+        border-radius: 28px;
+        padding: 14px 16px;
+        box-shadow:
+            0 18px 36px rgba(0,0,0,0.26),
+            inset 0 1px 0 rgba(255,255,255,0.05);
+        border: 1px solid rgba(255,255,255,0.06);
+        z-index: 999999;
+    }
+
+    .bottom-nav-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 18px;
+        align-items: center;
+    }
+
+    .bottom-nav-link {
+        width: 56px;
+        height: 56px;
+        margin: 0 auto;
+        border-radius: 18px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        text-decoration: none !important;
+        background: transparent;
+        border: 2px solid transparent;
+        transition: all 0.16s ease;
+        user-select: none;
+        -webkit-tap-highlight-color: transparent;
+    }
+
+    .bottom-nav-link:hover {
+        background: rgba(255,255,255,0.04);
+        transform: translateY(-1px);
+    }
+
+    .bottom-nav-link:active {
+        transform: scale(0.96);
+    }
+
+    .bottom-nav-icon {
+        font-size: 1.9rem;
+        line-height: 1;
+        filter: saturate(1.05);
+    }
+
+    .bottom-nav-link.home-link .bottom-nav-icon {
+        color: #f4c64f;
+    }
+
+    .bottom-nav-link.demo-link .bottom-nav-icon {
+        color: #8fc7d8;
+    }
+
+    .bottom-nav-link.stage-link-nav .bottom-nav-icon {
+        color: #ea8ad0;
+    }
+
+    .bottom-nav-link.active {
+        background: var(--chocolate-kisses);
+        border-color: var(--mauvelous);
+        box-shadow:
+            0 0 0 1px rgba(234,157,174,0.18),
+            0 0 18px rgba(234,157,174,0.20);
+    }
+
+    .bottom-nav-link.active .bottom-nav-icon {
+        transform: scale(1.03);
+    }
+
+    @keyframes logoFloat {
+        0%, 100% {
+            transform: translateY(0px);
+        }
+        50% {
+            transform: translateY(-4px);
+        }
+    }
+
+    @media (max-width: 480px) {
+        .hero-title {
+            font-size: 1.8rem;
+        }
+
+        .prediction-value,
+        .stage-word,
+        .timer-value {
+            font-size: 1.7rem;
+        }
+
+        .main .block-container {
+            padding-left: 0.9rem;
+            padding-right: 0.9rem;
+            padding-bottom: 7.6rem;
+        }
+
+        .nav-wrap {
+            width: min(410px, calc(100vw - 16px));
+            bottom: 8px;
+            padding: 12px 14px;
+            border-radius: 24px;
+        }
+
+        .bottom-nav-grid {
+            gap: 12px;
+        }
+
+        .bottom-nav-link {
+            width: 52px;
+            height: 52px;
+            border-radius: 16px;
+        }
+
+        .bottom-nav-icon {
+            font-size: 1.7rem;
+        }
+
+        .brand-logo-box {
+            width: 84px;
+            height: 84px;
+            margin-bottom: 12px;
+        }
+
+        .brand-letter {
+            font-size: 3.45rem;
+        }
+    }
+</style>
+""",
+    unsafe_allow_html=True,
+)
+
+
+# =========================
+# Video Processor
+# =========================
+class VideoProcessor(VideoProcessorBase):
+    def __init__(self):
+        self.predictor = SignLanguagePredictor(confidence_threshold=0.2)
+        self.result = {
+            "frames_collected": 0,
+            "frames_needed": 45,
+            "prediction": "Collecting...",
+            "raw_label": None,
+            "display_label": None,
+            "confidence": 0.0,
+            "is_confident": False,
+            "top3": [],
+        }
+        self.lock = threading.Lock()
+
+    def recv(self, frame):
+        img = frame.to_ndarray(format="bgr24")
+        img = cv2.flip(img, 1)
+
+        try:
+            processed_frame, result = self.predictor.process_frame(
+                img,
+                draw_landmarks=True,
+            )
+            with self.lock:
+                self.result = result.copy()
+        except Exception:
+            processed_frame = img
+
+        return av.VideoFrame.from_ndarray(processed_frame, format="bgr24")
+
+
+# =========================
+# Header
+# =========================
+st.markdown(
+    """
+    <div class="brand-logo-box">
+        <div class="brand-letter">L</div>
+    </div>
+
+    <div class="top-brand">
+        <div class="brand-title">Linguista 🤲</div>
+        <div class="brand-sub">Practice sign language in a playful, mobile-friendly way.</div>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
+
+
+# =========================
+# Home
+# =========================
 if st.session_state.page == "home":
-    html("""
-    <div class="nav-wrap">
-        <div class="nav-logo">SignSense AI</div>
-        <div class="nav-tag">Smart hand sign recognition demo</div>
-    </div>
-    """)
-
-    left_col, right_col = st.columns([1.15, 1.0], gap="large")
-
-    with left_col:
-        html("""
-        <div class="eyebrow">
-            <span class="eyebrow-dot"></span>
-            Real-time AI accessibility demo
-        </div>
-        """)
-
-        st.markdown(
-            """
-            <div class="hero-title">
-                Read hand signs<br>
-                <span class="hero-highlight">live and instantly</span>
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
-
-        st.markdown(
-            """
-            <div class="hero-subtitle">
-                A sleek real-time sign language detection experience powered by MediaPipe landmark tracking
-                and an LSTM classification model. Designed to make communication feel faster, smarter,
-                and more interactive.
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
-
-        btn1, btn2, btn3 = st.columns([0.42, 0.32, 0.18])
-        with btn1:
-            if st.button("Try Live Demo", use_container_width=True, type="primary"):
-                go_demo()
-                st.rerun()
-        with btn2:
-            if st.button("Stage Mode", use_container_width=True):
-                go_stage()
-                st.rerun()
-        with btn3:
-            st.button("Info", use_container_width=True)
-
-    with right_col:
-        components.html(
-            """
-            <div style="
-                position: relative;
-                min-height: 560px;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                padding: 10px;
-            ">
-                <div style="
-                    position:absolute;
-                    width:180px;height:180px;border-radius:999px;
-                    background: rgba(56, 189, 248, 0.26);
-                    top:30px;right:10px;
-                    filter: blur(10px);
-                    animation: floatBlob 9s ease-in-out infinite;
-                "></div>
-
-                <div style="
-                    position:absolute;
-                    width:130px;height:130px;border-radius:999px;
-                    background: rgba(125, 211, 252, 0.22);
-                    bottom:40px;left:10px;
-                    filter: blur(10px);
-                    animation: floatBlob 9s ease-in-out infinite;
-                    animation-delay:1.5s;
-                "></div>
-
-                <div style="
-                    position: relative;
-                    width: 100%;
-                    max-width: 560px;
-                    background: rgba(255,255,255,0.64);
-                    border: 1px solid rgba(255,255,255,0.6);
-                    border-radius: 30px;
-                    padding: 24px;
-                    backdrop-filter: blur(14px);
-                    box-shadow: 0 20px 45px rgba(44, 111, 161, 0.18);
-                    overflow: hidden;
-                ">
-                    <div style="
-                        background: linear-gradient(180deg, #f8fdff, #e5f5ff);
-                        border-radius: 24px;
-                        padding: 20px;
-                        min-height: 380px;
-                        position: relative;
-                        overflow: hidden;
-                        border: 1px solid rgba(160, 220, 255, 0.45);
-                    ">
-                        <div style="
-                            height: 210px;
-                            border-radius: 20px;
-                            background:
-                                linear-gradient(135deg, rgba(12,74,110,0.08), rgba(56,189,248,0.18)),
-                                radial-gradient(circle at 75% 25%, rgba(56,189,248,0.30), transparent 25%),
-                                linear-gradient(135deg, #effaff, #d8f0ff);
-                            display:flex;
-                            align-items:center;
-                            justify-content:center;
-                            color:#0c4a6e;
-                            font-size:1.05rem;
-                            font-weight:800;
-                            margin-bottom:18px;
-                            position:relative;
-                            overflow:hidden;
-                        ">
-                            Live camera + AI prediction preview
-                            <div style="
-                                position:absolute;
-                                width:100%;
-                                height:4px;
-                                background: linear-gradient(90deg, transparent, rgba(56,189,248,0.95), transparent);
-                                top:0;
-                                left:0;
-                                animation: scanMove 2.5s linear infinite;
-                            "></div>
-                        </div>
-
-                        <div style="
-                            display:grid;
-                            grid-template-columns:1fr 1fr;
-                            gap:14px;
-                            margin-top:12px;
-                        ">
-                            <div style="background:rgba(255,255,255,0.75);border:1px solid rgba(160,220,255,0.4);border-radius:18px;padding:16px;">
-                                <div style="color:#6390ab;font-size:0.82rem;margin-bottom:5px;">Prediction</div>
-                                <div style="color:#0077b6;font-size:1.35rem;font-weight:800;">Yes</div>
-                            </div>
-                            <div style="background:rgba(255,255,255,0.75);border:1px solid rgba(160,220,255,0.4);border-radius:18px;padding:16px;">
-                                <div style="color:#6390ab;font-size:0.82rem;margin-bottom:5px;">Confidence</div>
-                                <div style="color:#0077b6;font-size:1.35rem;font-weight:800;">0.965</div>
-                            </div>
-                            <div style="background:rgba(255,255,255,0.75);border:1px solid rgba(160,220,255,0.4);border-radius:18px;padding:16px;">
-                                <div style="color:#6390ab;font-size:0.82rem;margin-bottom:5px;">Frames</div>
-                                <div style="color:#0077b6;font-size:1.35rem;font-weight:800;">45/45</div>
-                            </div>
-                            <div style="background:rgba(255,255,255,0.75);border:1px solid rgba(160,220,255,0.4);border-radius:18px;padding:16px;">
-                                <div style="color:#6390ab;font-size:0.82rem;margin-bottom:5px;">Status</div>
-                                <div style="color:#0077b6;font-size:1.35rem;font-weight:800;">Live</div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <style>
-            @keyframes floatBlob {
-                0%   { transform: translateY(0px) translateX(0px); }
-                25%  { transform: translateY(-18px) translateX(8px); }
-                50%  { transform: translateY(8px) translateX(-10px); }
-                75%  { transform: translateY(-10px) translateX(12px); }
-                100% { transform: translateY(0px) translateX(0px); }
-            }
-            @keyframes scanMove {
-                0% { top: -5px; }
-                100% { top: 100%; }
-            }
-            </style>
-            """,
-            height=520,
-        )
-
-    html("""
-    <div class="features-wrap">
-        <div class="features-grid">
-            <div class="feature-card">
-                <div class="feature-icon">⚡</div>
-                <div class="feature-title">Real-Time Detection</div>
-                <div class="feature-text">
-                    Recognizes sign gestures from a live webcam feed with instant predictions and continuous updates.
-                </div>
-            </div>
-            <div class="feature-card">
-                <div class="feature-icon">🫱</div>
-                <div class="feature-title">Landmark Tracking</div>
-                <div class="feature-text">
-                    Uses pose and hand landmarks to capture motion patterns and body alignment for more reliable classification.
-                </div>
-            </div>
-            <div class="feature-card">
-                <div class="feature-icon">🧠</div>
-                <div class="feature-title">AI Sequence Model</div>
-                <div class="feature-text">
-                    An LSTM-based model reads motion over time instead of a single frame, making the recognition smarter and more context-aware.
-                </div>
+    st.markdown(
+        """
+        <div class="hero-card">
+            <div class="hero-title">Learn sign language<br>the fun way ✨</div>
+            <div class="hero-text">
+                Practice with live AI detection and playful mini challenges.
+                It’s friendly, simple, and designed to feel good on your phone.
             </div>
         </div>
-    </div>
-    """)
+        """,
+        unsafe_allow_html=True,
+    )
 
+    card(
+        "How it works 🌈",
+        "Open Freestyle to explore your sign prediction in real time, or try Stage Mode to complete mini sign challenges one by one.",
+    )
+
+    c1, c2 = st.columns(2)
+
+    with c1:
+        app_link("Freestyle", "demo", "freestyle-link")
+
+    with c2:
+        app_link("Stage Mode", "stage", "stage-link")
+
+    st.markdown(
+        '<div class="tiny-note">Tip: try to center yourself for an accurate prediction!</div>',
+        unsafe_allow_html=True,
+    )
+
+
+# =========================
+# Freestyle
+# =========================
 elif st.session_state.page == "demo":
-    st_autorefresh(interval=2000, key="prediction_refresh")
+    st_autorefresh(interval=1800, key="prediction_refresh")
 
-    back1, back2 = st.columns([0.12, 0.88])
-    with back1:
-        if st.button("← Back Home", use_container_width=True):
+    pill("Freestyle 🎥")
+
+    back_col, title_col = st.columns([0.28, 0.72])
+
+    with back_col:
+        if st.button("← Home", use_container_width=True):
             go_home()
             st.rerun()
 
-    st.markdown(
-        '<div class="hero-title" style="font-size:2.8rem; margin-top:10px;">AI Sign Language Detector</div>',
-        unsafe_allow_html=True
-    )
-    st.markdown(
-        '<div class="hero-subtitle" style="margin-bottom:1.4rem;">Live Thai sign recognition with MediaPipe + LSTM</div>',
-        unsafe_allow_html=True
-    )
-
-    left_col, right_col = st.columns([1.1, 0.9], gap="large")
-
-    with left_col:
+    with title_col:
         st.markdown(
             """
-            <div class="glass-card">
-                <div class="section-title">Camera Feed</div>
+            <div class="card" style="padding:12px 16px;">
+                <div class="card-title">Freestyle Detection</div>
+                <div class="card-body">Show your sign to the camera and let the model guess it ✨</div>
             </div>
             """,
-            unsafe_allow_html=True
+            unsafe_allow_html=True,
         )
 
-        ctx = webrtc_streamer(
-            key="sign-detection",
-            video_processor_factory=VideoProcessor,
-            media_stream_constraints={
-                "video": {
-                    "width": {"ideal": 640},
-                    "height": {"ideal": 480},
-                    "frameRate": {"ideal": 12},
-                },
-                "audio": False,
-            },
-            async_processing=True,
-        )
+    ctx = create_camera_stream("sign-detection")
 
-    with right_col:
+    if ctx.video_processor:
+        with ctx.video_processor.lock:
+            result = ctx.video_processor.result.copy()
+
+        current_sign = result.get("display_label") or result.get("prediction", "Collecting...")
+        confidence = result.get("confidence", 0.0)
+        frames = f"{result.get('frames_collected', 0)}/{result.get('frames_needed', 0)}"
+
         st.markdown(
-            """
-            <div class="glass-card">
-                <div class="section-title">Live Prediction</div>
+            f"""
+            <div class="prediction-card">
+                <div class="prediction-label">Current prediction</div>
+                <div class="prediction-value">{current_sign}</div>
             </div>
             """,
-            unsafe_allow_html=True
+            unsafe_allow_html=True,
         )
 
-        if ctx.video_processor:
-            with ctx.video_processor.lock:
-                result = ctx.video_processor.result.copy()
-
-            current_sign = result["prediction"]
-            confidence = result["confidence"]
-            frames = f"{result['frames_collected']}/{result['frames_needed']}"
-
-            html("""
-            <div class="status-row">
-                <div class="pulse-dot"></div>
-                <div class="status-text">Model is running live</div>
-            </div>
-            """)
-
-            st.markdown(f'<div class="prediction-main">{current_sign}</div>', unsafe_allow_html=True)
-            st.markdown('<div class="prediction-label">Current detected sign</div>', unsafe_allow_html=True)
-
-            html(f"""
-            <div class="mini-grid">
-                <div class="mini-card">
-                    <div class="mini-title">Confidence</div>
-                    <div class="mini-value">{confidence:.3f}</div>
+        st.markdown(
+            f"""
+            <div class="stats-grid">
+                <div class="stat-box">
+                    <div class="stat-title">Confidence</div>
+                    <div class="stat-value">{confidence:.3f}</div>
                 </div>
-                <div class="mini-card">
-                    <div class="mini-title">Frames</div>
-                    <div class="mini-value">{frames}</div>
+                <div class="stat-box">
+                    <div class="stat-title">Frames</div>
+                    <div class="stat-value">{frames}</div>
                 </div>
             </div>
-            """)
+            """,
+            unsafe_allow_html=True,
+        )
 
-            st.markdown('<div class="section-title" style="margin-top:4px;">Top 3 Predictions</div>', unsafe_allow_html=True)
+        card("Top 3 guesses 💫", "The model’s favorite guesses right now.")
 
-            if result["top3"]:
-                for item in result["top3"]:
-                    html(f"""
-                    <div class="top3-item">
-                        <span class="top3-name">{item['label']}</span>
-                        <span class="top3-score">{item['confidence']:.3f}</span>
+        if result.get("top3"):
+            for item in result["top3"]:
+                st.markdown(
+                    f"""
+                    <div class="top-item">
+                        <span class="top-name">{item['label']}</span>
+                        <span class="top-score">{item['confidence']:.3f}</span>
                     </div>
-                    """)
-            else:
-                st.info("Waiting for enough frames...")
+                    """,
+                    unsafe_allow_html=True,
+                )
         else:
-            st.info("Start the camera first.")
+            card("Warming up ⏳", "Hold your sign a little longer so the model can collect enough frames.")
 
+    else:
+        card("Camera not started yet 📷", "Tap Start above to begin freestyle mode.")
+
+
+# =========================
+# Stage Mode
+# =========================
 elif st.session_state.page == "stage":
-    st_autorefresh(interval=1000, key="stage_refresh")
+    if st.session_state.stage_status == "running":
+        st_autorefresh(interval=1000, key="stage_refresh")
 
     stage = STAGES[st.session_state.stage_index]
     target_sign = stage["target"]
+    demo_video = stage.get("video")
     progress_text = f"Stage {st.session_state.stage_index + 1} / {len(STAGES)}"
+    camera_key = f"stage-detection-{st.session_state.stage_index}"
 
-    top_left, top_right = st.columns([0.12, 0.88])
-    with top_left:
-        if st.button("← Back Home", use_container_width=True):
+    pill("Stage Mode 🎮", "yellow")
+
+    nav1, nav2 = st.columns([0.28, 0.72])
+
+    with nav1:
+        if st.button("← Home", use_container_width=True):
+            st.session_state.stage_index = 0
+            reset_stage()
             go_home()
             st.rerun()
 
-    st.subheader("Stage Mode")
-
-    left_col, right_col = st.columns([1.15, 0.85], gap="large")
-
-    with left_col:
+    with nav2:
         st.markdown(
-            """
-            <div class="glass-card">
-                <div class="section-title">Camera</div>
+            f"""
+            <div class="card" style="padding:12px 16px;">
+                <div class="card-title">{progress_text}</div>
+                <div class="card-body">Match the target sign before time runs out 💪</div>
             </div>
             """,
-            unsafe_allow_html=True
+            unsafe_allow_html=True,
         )
 
-        ctx = webrtc_streamer(
-            key="stage-detection",
-            video_processor_factory=VideoProcessor,
-            media_stream_constraints={
-                "video": {
-                    "width": {"ideal": 640},
-                    "height": {"ideal": 480},
-                    "frameRate": {"ideal": 12},
-                },
-                "audio": False,
-            },
-            async_processing=True,
-        )
+    st.markdown(
+        f"""
+        <div class="stage-target">
+            <div class="stage-kicker">Target sign</div>
+            <div class="stage-word">{target_sign}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
-    with right_col:
-        st.markdown(
-            """
-            <div class="glass-card">
-                <div class="section-title">Status</div>
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
+    if st.session_state.stage_status == "idle":
+        show_stage_demo(demo_video, target_sign)
+        card("Ready? 🌟", "Watch the demo clip, then press Start and make the sign before the timer hits zero.")
+
+        if st.button("Start Stage", use_container_width=True):
+            start_stage()
+            st.rerun()
+
+    elif st.session_state.stage_status == "running":
+        ctx = create_camera_stream(camera_key)
 
         if ctx.video_processor:
             with ctx.video_processor.lock:
                 result = ctx.video_processor.result.copy()
 
-            detected_sign = result["prediction"]
-            confidence = result["confidence"]
+            detected_sign = result.get("display_label") or result.get("prediction", "Collecting...")
+            confidence = result.get("confidence", 0.0)
+            is_confident = result.get("is_confident", False)
 
-            time_left = 10
-            if st.session_state.stage_started and st.session_state.stage_start_time is not None:
-                elapsed = time.time() - st.session_state.stage_start_time
-                time_left = max(0, 10 - int(elapsed))
+            elapsed = time.time() - st.session_state.stage_start_time
+            time_left = max(0, math.ceil(30 - elapsed))
 
-                if st.session_state.stage_status == "running":
-                    if detected_sign == target_sign and confidence >= 0.70:
-                        st.session_state.stage_status = "passed"
-                        st.session_state.stage_feedback = f"Correct! You passed {progress_text}."
-                        st.rerun()
+            if (
+                str(detected_sign).strip().lower() == str(target_sign).strip().lower()
+                and is_confident
+                and confidence >= 0.70
+            ):
+                st.session_state.stage_status = "passed"
+                st.session_state.stage_feedback = SUCCESS_MESSAGES[
+                    st.session_state.stage_index % len(SUCCESS_MESSAGES)
+                ]
+                st.rerun()
 
-                    elif elapsed >= 10:
-                        st.session_state.stage_status = "failed"
-                        st.session_state.stage_feedback = "Time's up. Try again."
-                        st.rerun()
+            elif elapsed >= 30:
+                st.session_state.stage_status = "failed"
+                st.session_state.stage_feedback = FAIL_MESSAGES[
+                    st.session_state.stage_index % len(FAIL_MESSAGES)
+                ]
+                st.rerun()
 
-            st.markdown(f"**{progress_text}**")
-            st.markdown("**TARGET SIGN**")
             st.markdown(
-                f"<div style='font-size:3rem; font-weight:900; color:#0077b6; margin-bottom:20px;'>{target_sign}</div>",
-                unsafe_allow_html=True
+                f"""
+                <div class="timer-box">
+                    <div class="card-title">Time left ⏰</div>
+                    <div class="timer-value">{time_left}s</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
             )
 
-            st.markdown("**TIME LEFT**")
             st.markdown(
-                f"<div style='font-size:2.6rem; font-weight:900; color:#0b5f8a; margin-bottom:20px;'>{time_left}s</div>",
-                unsafe_allow_html=True
+                f"""
+                <div class="prediction-card">
+                    <div class="prediction-label">Your current sign</div>
+                    <div class="prediction-value">{detected_sign}</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
             )
 
-            if st.session_state.stage_status == "idle":
-                st.info("Press Start Stage.")
-                if st.button("Start Stage", use_container_width=True, type="primary"):
-                    start_stage()
-                    st.rerun()
+            st.markdown(
+                f"""
+                <div class="stats-grid">
+                    <div class="stat-box">
+                        <div class="stat-title">Confidence</div>
+                        <div class="stat-value">{confidence:.3f}</div>
+                    </div>
+                    <div class="stat-box">
+                        <div class="stat-title">Target</div>
+                        <div class="stat-value">{target_sign}</div>
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
 
-            elif st.session_state.stage_status == "running":
-                st.warning("Do the sign now.")
+            pill("Go go go! 💨", "soft")
 
-            elif st.session_state.stage_status == "passed":
-                st.success(st.session_state.stage_feedback)
+        else:
+            card("Camera not started yet 📷", "Tap Start on the camera box above if your browser asks for permission.")
 
-                if st.session_state.stage_index < len(STAGES) - 1:
-                    if st.button("Next Stage", use_container_width=True, type="primary"):
-                        next_stage()
-                        st.rerun()
-                else:
-                    st.balloons()
-                    st.success("You cleared all stages.")
+    elif st.session_state.stage_status == "passed":
+        st.markdown(
+            """
+            <div class="timer-box">
+                <div class="card-title">Status ✅</div>
+                <div class="timer-value" style="font-size:1.35rem;">Correct hand sign ✅</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
-                    col_a, col_b = st.columns(2)
-                    with col_a:
-                        if st.button("Play Again", use_container_width=True):
-                            st.session_state.stage_index = 0
-                            reset_stage()
-                            st.rerun()
-                    with col_b:
-                        if st.button("Back Home", use_container_width=True):
-                            st.session_state.stage_index = 0
-                            reset_stage()
-                            go_home()
-                            st.rerun()
+        st.markdown(
+            f"""<div class="feedback-success">{st.session_state.stage_feedback}</div>""",
+            unsafe_allow_html=True,
+        )
 
-            elif st.session_state.stage_status == "failed":
-                st.error(st.session_state.stage_feedback)
-                if st.button("Try Again", use_container_width=True, type="primary"):
+        if not st.session_state.stage_balloons_shown:
+            st.balloons()
+            st.session_state.stage_balloons_shown = True
+
+        if st.session_state.stage_index < len(STAGES) - 1:
+            if st.button("Next Stage", use_container_width=True):
+                next_stage()
+                st.rerun()
+        else:
+            st.markdown(
+                """<div class="feedback-success">You cleared all stages! 🎉💖</div>""",
+                unsafe_allow_html=True,
+            )
+
+            c1, c2 = st.columns(2)
+            with c1:
+                if st.button("Play Again", use_container_width=True):
+                    st.session_state.stage_index = 0
                     reset_stage()
                     st.rerun()
-        else:
-            st.info("Start the camera first.")
+
+            with c2:
+                if st.button("Home", use_container_width=True):
+                    st.session_state.stage_index = 0
+                    reset_stage()
+                    go_home()
+                    st.rerun()
+
+    elif st.session_state.stage_status == "failed":
+        show_stage_demo(demo_video, target_sign)
+
+        st.markdown(
+            f"""<div class="feedback-fail">{st.session_state.stage_feedback}</div>""",
+            unsafe_allow_html=True,
+        )
+
+        if st.button("Try Again", use_container_width=True):
+            reset_stage()
+            st.rerun()
+
+
+# =========================
+# Bottom nav
+# =========================
+nav_html = f"""
+<div class="nav-wrap">
+    <div class="bottom-nav-grid">
+        {bottom_nav_item("🏠", "home", "home-link", active=(st.session_state.page == "home"))}
+        {bottom_nav_item("🎥", "demo", "demo-link", active=(st.session_state.page == "demo"))}
+        {bottom_nav_item("🎮", "stage", "stage-link-nav", active=(st.session_state.page == "stage"))}
+    </div>
+</div>
+"""
+
+st.markdown(nav_html, unsafe_allow_html=True)
