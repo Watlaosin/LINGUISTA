@@ -7,7 +7,11 @@ import av
 import cv2
 import streamlit as st
 from streamlit_autorefresh import st_autorefresh
-from streamlit_webrtc import VideoProcessorBase, webrtc_streamer
+from streamlit_webrtc import (
+    RTCConfiguration,
+    VideoProcessorBase,
+    webrtc_streamer,
+)
 
 from sign_predictor import SignLanguagePredictor
 
@@ -20,6 +24,20 @@ st.set_page_config(
 )
 
 BASE_DIR = Path(__file__).parent
+
+RTC_CONFIGURATION = RTCConfiguration(
+    {
+        "iceServers": [
+            {"urls": ["stun:stun.l.google.com:19302"]},
+        ]
+    }
+)
+
+
+@st.cache_resource
+def load_predictor():
+    return SignLanguagePredictor(confidence_threshold=0.2)
+
 
 # =========================
 # Query-param page sync
@@ -184,6 +202,7 @@ def create_camera_stream(key: str):
     return webrtc_streamer(
         key=key,
         video_processor_factory=VideoProcessor,
+        rtc_configuration=RTC_CONFIGURATION,
         media_stream_constraints={
             "video": {
                 "width": {"ideal": 480},
@@ -208,7 +227,10 @@ def show_stage_demo(video_path, target_sign: str):
             """,
             unsafe_allow_html=True,
         )
-        st.video(str(video_path))
+
+        left, center, right = st.columns([1, 2, 1])
+        with center:
+            st.video(str(video_path))
     else:
         card(
             "Demo clip missing 🎬",
@@ -781,6 +803,11 @@ st.markdown(
         .brand-letter {
             font-size: 3.45rem;
         }
+
+        video {
+            width: 84% !important;
+            max-width: 300px !important;
+        }
     }
 </style>
 """,
@@ -793,7 +820,7 @@ st.markdown(
 # =========================
 class VideoProcessor(VideoProcessorBase):
     def __init__(self):
-        self.predictor = SignLanguagePredictor(confidence_threshold=0.2)
+        self.predictor = load_predictor()
         self.result = {
             "frames_collected": 0,
             "frames_needed": 45,
@@ -1024,7 +1051,7 @@ elif st.session_state.page == "stage":
             is_confident = result.get("is_confident", False)
 
             elapsed = time.time() - st.session_state.stage_start_time
-            time_left = max(0, math.ceil(30 - elapsed))
+            time_left = max(0, math.ceil(10 - elapsed))
 
             if (
                 str(detected_sign).strip().lower() == str(target_sign).strip().lower()
@@ -1037,7 +1064,7 @@ elif st.session_state.page == "stage":
                 ]
                 st.rerun()
 
-            elif elapsed >= 30:
+            elif elapsed >= 10:
                 st.session_state.stage_status = "failed"
                 st.session_state.stage_feedback = FAIL_MESSAGES[
                     st.session_state.stage_index % len(FAIL_MESSAGES)
