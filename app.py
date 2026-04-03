@@ -108,17 +108,17 @@ STAGES = [
 ]
 
 SUCCESS_MESSAGES = [
-    "Amazing! 🌟",
-    "Nice one! 🎉",
-    "So good! 💖",
-    "You got it! ✨",
+    "Amazing!",
+    "Nice one!",
+    "Perfect!",
+    "You got it!",
 ]
 
 FAIL_MESSAGES = [
-    "Almost there! 🌈",
-    "Try again! 💪",
-    "One more time! 🫶",
-    "Keep going! ✨",
+    "Almost there!",
+    "Try again!",
+    "One more time!",
+    "Keep going!",
 ]
 
 
@@ -197,12 +197,20 @@ def app_link(label: str, page: str, variant: str = ""):
     )
 
 
-def bottom_nav_item(icon: str, page: str, variant: str = "", active: bool = False):
+NAV_ICONS = {
+    "home": '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>',
+    "demo": '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"></path><circle cx="12" cy="13" r="4"></circle></svg>',
+    "stage": '<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"></polygon></svg>',
+}
+
+
+def bottom_nav_item(icon_key: str, page: str, variant: str = "", active: bool = False):
     active_class = "active" if active else ""
+    icon_svg = NAV_ICONS.get(icon_key, icon_key)
     return (
         f'<a class="bottom-nav-link {variant} {active_class}" '
         f'href="/?page={page}" target="_self" aria-label="{page}">'
-        f'<span class="bottom-nav-icon">{icon}</span>'
+        f'<span class="bottom-nav-icon">{icon_svg}</span>'
         f"</a>"
     )
 
@@ -230,8 +238,8 @@ def show_stage_demo(video_path, target_sign: str):
         st.markdown(
             f"""
             <div class="card" style="padding:12px 16px;">
-                <div class="card-title">Demo Clip</div>
-                <div class="card-body">Watch how to sign <b>{target_sign}</b> before starting.</div>
+                <div class="card-title">Watch the demo</div>
+                <div class="card-body">Learn how to sign <b>{target_sign}</b></div>
             </div>
             """,
             unsafe_allow_html=True,
@@ -242,7 +250,7 @@ def show_stage_demo(video_path, target_sign: str):
             st.video(str(video_path))
     else:
         card(
-            "Demo clip missing 🎬",
+            "Demo clip missing",
             f"Add a video file for {target_sign} in assets/demo_videos.",
         )
 
@@ -253,29 +261,40 @@ def show_stage_demo(video_path, target_sign: str):
 st.markdown(
     """
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=UnifrakturCook:wght@700&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&display=swap');
 
     :root {
+        /* Your existing color palette - KEPT EXACTLY */
         --chocolate-kisses: #45151B;
         --mauvelous: #EA9DAE;
         --royal-orange: #F99256;
         --bittersweet-shimmer: #C74E51;
         --caramel: #FBDE9C;
         --soft-rose: #F8D9E0;
-        --text-soft: #6C3C42;
-        --text-mid: #7A3340;
-        --white-glass: rgba(255,255,255,0.82);
-        --nav-dark: rgba(22, 35, 48, 0.96);
+        
+        /* Semantic color roles */
+        --bg-primary: #FDF8F4;
+        --bg-card: #FFFFFF;
+        --text-primary: #45151B;
+        --text-secondary: #7A4A52;
+        --text-muted: #A67580;
+        --border-light: rgba(69, 21, 27, 0.08);
+        --shadow-sm: 0 2px 8px rgba(69, 21, 27, 0.06);
+        --shadow-md: 0 4px 16px rgba(69, 21, 27, 0.08);
+        --shadow-lg: 0 8px 24px rgba(69, 21, 27, 0.10);
     }
 
-    #MainMenu {visibility: hidden;}
-    header {visibility: hidden;}
-    footer {visibility: hidden;}
-    [data-testid="stToolbar"] {display:none !important;}
-    [data-testid="collapsedControl"] {display:none !important;}
+    /* Hide Streamlit defaults */
+    #MainMenu, header, footer,
+    [data-testid="stToolbar"],
+    [data-testid="collapsedControl"] {
+        display: none !important;
+        visibility: hidden !important;
+    }
 
+    /* Base typography - Duolingo uses rounded, friendly fonts */
     html, body, [class*="css"] {
-        font-family: "Avenir Next", "SF Pro Display", "Segoe UI", sans-serif;
+        font-family: "Nunito", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
         -webkit-font-smoothing: antialiased;
         -moz-osx-font-smoothing: grayscale;
     }
@@ -284,142 +303,136 @@ st.markdown(
         text-decoration: none !important;
     }
 
+    /* Clean, solid background - no gradients */
     .stApp {
-        background:
-            radial-gradient(circle at top left, rgba(249,146,86,0.15), transparent 30%),
-            radial-gradient(circle at top right, rgba(234,157,174,0.18), transparent 28%),
-            linear-gradient(180deg, #FBDE9C 0%, #F7CFA8 45%, #EA9DAE 100%);
-        color: var(--chocolate-kisses);
+        background: var(--bg-primary);
+        color: var(--text-primary);
     }
 
+    /* Container - mobile-first */
     .main .block-container {
-        max-width: 430px;
-        padding-top: 1rem;
-        padding-bottom: 7.6rem;
-        padding-left: 1rem;
-        padding-right: 1rem;
+        max-width: 420px;
+        padding: 16px 20px 100px 20px;
     }
 
+    /* Logo - simplified, no heavy effects */
     .logo-image-wrap {
         width: 100%;
         display: flex;
         justify-content: center;
-        align-items: center;
-        margin: 0 auto 14px auto;
+        margin: 8px auto 16px auto;
     }
 
     .logo-image-box {
-    width: 90px;
-    height: 90px;
-    border-radius: 50%;
-    background: #BF4F51;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    animation: logoFloat 2.6s ease-in-out infinite;
-    box-shadow:
-        0 10px 18px rgba(191,21,27,0.22),
-        0 0 0 3px rgba(255,255,255,0.08),
-        0 0 16px rgba(191,79,81,0.35)
+        width: 72px;
+        height: 72px;
+        border-radius: 50%;
+        background: var(--bittersweet-shimmer);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        box-shadow: var(--shadow-md);
     }
 
     .logo-image-box img {
-        width: 140%;
-        height: 140%;
+        width: 130%;
+        height: 130%;
         object-fit: cover;
         display: block;
-        transform: translateY(10px);
-        transform: translateX(-1.4px);
     }
 
+    /* Top brand header - cleaner, solid */
     .top-brand {
         background: var(--chocolate-kisses);
         color: var(--mauvelous);
-        border-radius: 30px;
-        padding: 1.15rem 1.15rem 1.1rem 1.15rem;
-        box-shadow: 0 12px 28px rgba(69,21,27,0.18);
-        margin-bottom: 12px;
+        border-radius: 20px;
+        padding: 20px;
+        box-shadow: var(--shadow-lg);
+        margin-bottom: 20px;
         text-align: center;
     }
 
     .brand-title {
-        font-size: 1.78rem;
-        font-weight: 900;
-        line-height: 1.05;
-        letter-spacing: -0.45px;
+        font-size: 1.5rem;
+        font-weight: 800;
+        line-height: 1.2;
+        letter-spacing: -0.3px;
         color: var(--mauvelous);
-        margin-top: 0.1rem;
     }
 
     .brand-sub {
         margin-top: 6px;
-        color: var(--mauvelous);
-        font-size: 0.95rem;
-        line-height: 1.4;
+        color: var(--soft-rose);
+        font-size: 0.9rem;
+        font-weight: 600;
+        line-height: 1.5;
+        opacity: 0.9;
     }
 
+    /* Hero card - clean, solid white */
     .hero-card {
-        background: rgba(255,255,255,0.76);
-        backdrop-filter: blur(12px);
-        -webkit-backdrop-filter: blur(12px);
-        border-radius: 28px;
-        padding: 18px;
-        border: 2px solid rgba(255,255,255,0.4);
-        box-shadow: 0 8px 24px rgba(69,21,27,0.10);
-        margin-bottom: 12px;
+        background: var(--bg-card);
+        border-radius: 20px;
+        padding: 24px;
+        border: 1px solid var(--border-light);
+        box-shadow: var(--shadow-sm);
+        margin-bottom: 16px;
     }
 
     .hero-title {
-        font-size: 2rem;
-        font-weight: 900;
-        color: var(--chocolate-kisses);
-        line-height: 1.02;
-        margin-bottom: 8px;
-    }
-
-    .hero-text {
-        color: var(--text-mid);
-        font-size: 1rem;
-        line-height: 1.5;
-    }
-
-    .card {
-        background: var(--white-glass);
-        backdrop-filter: blur(10px);
-        -webkit-backdrop-filter: blur(10px);
-        border-radius: 24px;
-        padding: 16px;
-        box-shadow: 0 8px 20px rgba(69,21,27,0.10);
-        border: 1.5px solid rgba(255,255,255,0.45);
+        font-size: 1.6rem;
+        font-weight: 800;
+        color: var(--text-primary);
+        line-height: 1.2;
         margin-bottom: 12px;
     }
 
+    .hero-text {
+        color: var(--text-secondary);
+        font-size: 0.95rem;
+        font-weight: 500;
+        line-height: 1.6;
+    }
+
+    /* Standard card - solid, minimal */
+    .card {
+        background: var(--bg-card);
+        border-radius: 16px;
+        padding: 16px 20px;
+        box-shadow: var(--shadow-sm);
+        border: 1px solid var(--border-light);
+        margin-bottom: 16px;
+    }
+
     .card-title {
-        font-size: 1rem;
-        font-weight: 900;
-        color: var(--chocolate-kisses);
-        margin-bottom: 8px;
+        font-size: 0.95rem;
+        font-weight: 800;
+        color: var(--text-primary);
+        margin-bottom: 6px;
     }
 
     .card-body {
-        color: var(--text-soft);
-        line-height: 1.45;
+        color: var(--text-secondary);
+        font-size: 0.9rem;
+        font-weight: 500;
+        line-height: 1.5;
     }
 
+    /* Pills - solid colors, no heavy shadows */
     .pill {
         display: inline-block;
         background: var(--royal-orange);
         color: white;
-        border-radius: 999px;
-        padding: 8px 12px;
-        font-size: 0.82rem;
-        font-weight: 900;
-        margin-bottom: 10px;
-        box-shadow: 0 4px 12px rgba(69,21,27,0.08);
+        border-radius: 20px;
+        padding: 8px 16px;
+        font-size: 0.8rem;
+        font-weight: 700;
+        margin-bottom: 12px;
+        letter-spacing: 0.3px;
     }
 
     .pill.soft {
-        background: var(--mauvelous);
+        background: var(--soft-rose);
         color: var(--chocolate-kisses);
     }
 
@@ -428,374 +441,376 @@ st.markdown(
         color: var(--chocolate-kisses);
     }
 
+    /* Prediction card - solid dark background */
     .prediction-card {
-        background: linear-gradient(180deg, rgba(69,21,27,0.96), rgba(102,28,38,0.96));
+        background: var(--chocolate-kisses);
         color: var(--caramel);
-        border-radius: 28px;
-        padding: 18px;
-        box-shadow: 0 12px 28px rgba(69,21,27,0.20);
-        margin-bottom: 12px;
+        border-radius: 20px;
+        padding: 20px;
+        box-shadow: var(--shadow-lg);
+        margin-bottom: 16px;
     }
 
     .prediction-label {
         color: var(--soft-rose);
-        font-size: 0.9rem;
+        font-size: 0.85rem;
         font-weight: 700;
         margin-bottom: 8px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
     }
 
     .prediction-value {
-        font-size: 2rem;
-        font-weight: 900;
-        line-height: 1.05;
+        font-size: 1.75rem;
+        font-weight: 800;
+        line-height: 1.1;
         word-break: break-word;
     }
 
+    /* Stats grid - clean boxes */
     .stats-grid {
         display: grid;
         grid-template-columns: 1fr 1fr;
-        gap: 10px;
-        margin-bottom: 12px;
+        gap: 12px;
+        margin-bottom: 16px;
     }
 
     .stat-box {
-        background: rgba(255,255,255,0.8);
-        border-radius: 22px;
-        padding: 14px;
-        box-shadow: 0 8px 20px rgba(69,21,27,0.08);
-        border: 1px solid rgba(255,255,255,0.35);
-        backdrop-filter: blur(8px);
-        -webkit-backdrop-filter: blur(8px);
+        background: var(--bg-card);
+        border-radius: 16px;
+        padding: 16px;
+        box-shadow: var(--shadow-sm);
+        border: 1px solid var(--border-light);
     }
 
     .stat-title {
-        font-size: 0.82rem;
-        color: #A74B5A;
-        font-weight: 800;
+        font-size: 0.75rem;
+        color: var(--text-muted);
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
     }
 
     .stat-value {
         font-size: 1.25rem;
-        color: var(--chocolate-kisses);
-        font-weight: 900;
-        margin-top: 6px;
+        color: var(--text-primary);
+        font-weight: 800;
+        margin-top: 4px;
     }
 
+    /* Top items list - clean rows */
     .top-item {
         display: flex;
         justify-content: space-between;
         align-items: center;
-        background: #F8E4B8;
-        border-radius: 20px;
-        padding: 12px 14px;
+        background: var(--soft-rose);
+        border-radius: 12px;
+        padding: 14px 16px;
         margin-bottom: 8px;
-        border: 1px solid rgba(69,21,27,0.08);
     }
 
     .top-name {
-        font-weight: 900;
-        color: var(--chocolate-kisses);
+        font-weight: 700;
+        color: var(--text-primary);
+        font-size: 0.95rem;
     }
 
     .top-score {
-        font-weight: 900;
+        font-weight: 800;
         color: var(--bittersweet-shimmer);
+        font-size: 0.95rem;
     }
 
+    /* Stage target - solid background */
     .stage-target {
-        background: linear-gradient(180deg, var(--mauvelous), #F7B4C0);
-        border-radius: 28px;
-        padding: 18px;
+        background: var(--mauvelous);
+        border-radius: 20px;
+        padding: 24px;
         text-align: center;
-        box-shadow: 0 10px 24px rgba(199,78,81,0.14);
-        margin-bottom: 12px;
+        box-shadow: var(--shadow-md);
+        margin-bottom: 16px;
     }
 
     .stage-kicker {
-        font-size: 0.9rem;
-        font-weight: 800;
-        color: var(--text-mid);
+        font-size: 0.8rem;
+        font-weight: 700;
+        color: var(--chocolate-kisses);
         margin-bottom: 8px;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        opacity: 0.8;
     }
 
     .stage-word {
         font-size: 2rem;
-        font-weight: 900;
+        font-weight: 800;
         color: var(--chocolate-kisses);
-        line-height: 1.05;
+        line-height: 1.1;
     }
 
+    /* Timer box - clean white */
     .timer-box {
-        background: rgba(255,255,255,0.8);
-        border-radius: 24px;
+        background: var(--bg-card);
+        border-radius: 16px;
         text-align: center;
-        padding: 14px;
-        margin-bottom: 12px;
-        box-shadow: 0 8px 20px rgba(69,21,27,0.08);
-        backdrop-filter: blur(8px);
-        -webkit-backdrop-filter: blur(8px);
+        padding: 16px;
+        margin-bottom: 16px;
+        box-shadow: var(--shadow-sm);
+        border: 1px solid var(--border-light);
     }
 
     .timer-value {
         font-size: 2rem;
-        font-weight: 900;
+        font-weight: 800;
         color: var(--bittersweet-shimmer);
     }
 
+    /* Feedback messages - solid colors */
     .feedback-success {
         background: var(--bittersweet-shimmer);
         color: white;
-        border-radius: 22px;
-        padding: 14px 16px;
-        font-weight: 900;
+        border-radius: 16px;
+        padding: 16px 20px;
+        font-weight: 700;
+        font-size: 1rem;
         text-align: center;
-        margin-bottom: 12px;
+        margin-bottom: 16px;
     }
 
     .feedback-fail {
         background: var(--royal-orange);
         color: white;
-        border-radius: 22px;
-        padding: 14px 16px;
-        font-weight: 900;
+        border-radius: 16px;
+        padding: 16px 20px;
+        font-weight: 700;
+        font-size: 1rem;
         text-align: center;
-        margin-bottom: 12px;
+        margin-bottom: 16px;
     }
 
+    /* Tiny note */
     .tiny-note {
         text-align: center;
-        color: var(--text-soft);
-        font-size: 0.84rem;
-        margin-top: 10px;
+        color: var(--text-muted);
+        font-size: 0.85rem;
+        font-weight: 500;
+        margin-top: 12px;
         margin-bottom: 8px;
     }
 
+    /* Video styling - cleaner */
     video {
-        width: 78% !important;
-        max-width: 320px !important;
+        width: 100% !important;
+        max-width: 280px !important;
         height: auto !important;
         margin: 0 auto !important;
         display: block !important;
-        border-radius: 24px !important;
+        border-radius: 16px !important;
         object-fit: cover !important;
         background: var(--chocolate-kisses) !important;
-        box-shadow: 0 10px 26px rgba(69,21,27,0.18) !important;
-        border: 2px solid rgba(255,255,255,0.22) !important;
+        box-shadow: var(--shadow-md) !important;
+        border: none !important;
     }
 
+    /* Buttons - Duolingo-style pill buttons */
     .stButton > button {
         width: 100%;
         border: none !important;
-        border-radius: 999px !important;
-        height: 58px !important;
-        padding: 0.9rem 1rem !important;
-        font-size: 1.05rem !important;
-        font-weight: 900 !important;
-        letter-spacing: 0.3px !important;
+        border-radius: 16px !important;
+        height: 56px !important;
+        padding: 0 24px !important;
+        font-size: 1rem !important;
+        font-weight: 700 !important;
+        letter-spacing: 0.2px !important;
         background: var(--chocolate-kisses) !important;
         color: var(--mauvelous) !important;
-        box-shadow:
-            0 10px 22px rgba(69,21,27,0.18),
-            inset 0 -3px 0 rgba(0,0,0,0.16),
-            inset 0 1px 0 rgba(255,255,255,0.05) !important;
-        transition:
-            transform 0.12s ease,
-            filter 0.12s ease,
-            box-shadow 0.12s ease !important;
+        box-shadow: 0 4px 0 #2D0E12 !important;
+        transition: all 0.1s ease !important;
+        position: relative !important;
+        top: 0 !important;
     }
 
     .stButton > button:hover {
-        transform: translateY(-2px) scale(1.015);
-        filter: brightness(1.04);
+        top: 2px !important;
+        box-shadow: 0 2px 0 #2D0E12 !important;
     }
 
     .stButton > button:active {
-        transform: translateY(1px) scale(0.985);
+        top: 4px !important;
+        box-shadow: 0 0 0 #2D0E12 !important;
     }
 
     .stButton > button:focus,
     .stButton > button:focus-visible {
         outline: none !important;
-        box-shadow:
-            0 0 0 3px rgba(255,255,255,0.28),
-            0 10px 22px rgba(69,21,27,0.18),
-            inset 0 -3px 0 rgba(0,0,0,0.16) !important;
+        box-shadow: 0 4px 0 #2D0E12, 0 0 0 3px rgba(234, 157, 174, 0.4) !important;
     }
 
+    /* App link buttons - Duolingo-style */
     .app-link {
         display: flex;
         align-items: center;
         justify-content: center;
         width: 100%;
-        height: 58px;
-        border-radius: 999px;
-        font-size: 1.05rem;
-        font-weight: 900;
-        letter-spacing: 0.3px;
+        height: 56px;
+        border-radius: 16px;
+        font-size: 1rem;
+        font-weight: 700;
+        letter-spacing: 0.2px;
         text-decoration: none !important;
-        box-shadow:
-            0 10px 22px rgba(69,21,27,0.18),
-            inset 0 -3px 0 rgba(0,0,0,0.16),
-            inset 0 1px 0 rgba(255,255,255,0.05);
-        transition: transform 0.12s ease, filter 0.12s ease;
+        transition: all 0.1s ease;
         user-select: none;
         -webkit-tap-highlight-color: transparent;
+        position: relative;
+        top: 0;
     }
 
     .app-link:hover {
-        transform: translateY(-2px) scale(1.015);
-        filter: brightness(1.04);
+        top: 2px;
     }
 
     .app-link:active {
-        transform: translateY(1px) scale(0.985);
+        top: 4px;
     }
 
     .app-link.freestyle-link {
         background: var(--royal-orange);
-        color: var(--chocolate-kisses) !important;
+        color: white !important;
+        box-shadow: 0 4px 0 #C76A3A;
+    }
+
+    .app-link.freestyle-link:hover {
+        box-shadow: 0 2px 0 #C76A3A;
+    }
+
+    .app-link.freestyle-link:active {
+        box-shadow: 0 0 0 #C76A3A;
     }
 
     .app-link.stage-link {
         background: var(--bittersweet-shimmer);
-        color: var(--caramel) !important;
+        color: white !important;
+        box-shadow: 0 4px 0 #9A3A3C;
     }
 
+    .app-link.stage-link:hover {
+        box-shadow: 0 2px 0 #9A3A3C;
+    }
+
+    .app-link.stage-link:active {
+        box-shadow: 0 0 0 #9A3A3C;
+    }
+
+    /* Bottom navigation - clean iOS-style tab bar */
     .nav-wrap {
         position: fixed;
         left: 50%;
         transform: translateX(-50%);
-        bottom: 10px;
-        width: min(410px, calc(100vw - 20px));
-        background: var(--nav-dark);
-        backdrop-filter: blur(18px);
-        -webkit-backdrop-filter: blur(18px);
-        border-radius: 28px;
-        padding: 14px 16px;
-        box-shadow:
-            0 18px 36px rgba(0,0,0,0.26),
-            inset 0 1px 0 rgba(255,255,255,0.05);
-        border: 1px solid rgba(255,255,255,0.06);
+        bottom: 16px;
+        width: min(380px, calc(100vw - 32px));
+        background: var(--chocolate-kisses);
+        border-radius: 24px;
+        padding: 8px 12px;
+        box-shadow: var(--shadow-lg);
         z-index: 999999;
     }
 
     .bottom-nav-grid {
         display: grid;
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-        gap: 18px;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 8px;
         align-items: center;
     }
 
     .bottom-nav-link {
-        width: 56px;
-        height: 56px;
+        height: 52px;
         margin: 0 auto;
-        border-radius: 18px;
+        border-radius: 16px;
         display: flex;
         align-items: center;
         justify-content: center;
         text-decoration: none !important;
         background: transparent;
-        border: 2px solid transparent;
-        transition: all 0.16s ease;
+        transition: all 0.15s ease;
         user-select: none;
         -webkit-tap-highlight-color: transparent;
+        width: 100%;
     }
 
     .bottom-nav-link:hover {
-        background: rgba(255,255,255,0.04);
-        transform: translateY(-1px);
+        background: rgba(255, 255, 255, 0.08);
     }
 
     .bottom-nav-link:active {
-        transform: scale(0.96);
+        transform: scale(0.95);
     }
 
     .bottom-nav-icon {
-        font-size: 1.9rem;
-        line-height: 1;
-        filter: saturate(1.05);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        opacity: 0.5;
+        transition: opacity 0.15s ease;
+        color: var(--mauvelous);
     }
 
-    .bottom-nav-link.home-link .bottom-nav-icon {
-        color: #f4c64f;
-    }
-
-    .bottom-nav-link.demo-link .bottom-nav-icon {
-        color: #8fc7d8;
-    }
-
-    .bottom-nav-link.stage-link-nav .bottom-nav-icon {
-        color: #ea8ad0;
+    .bottom-nav-icon svg {
+        width: 24px;
+        height: 24px;
     }
 
     .bottom-nav-link.active {
-        background: var(--chocolate-kisses);
-        border-color: var(--mauvelous);
-        box-shadow:
-            0 0 0 1px rgba(234,157,174,0.18),
-            0 0 18px rgba(234,157,174,0.20);
+        background: var(--mauvelous);
     }
 
     .bottom-nav-link.active .bottom-nav-icon {
-        transform: scale(1.03);
+        opacity: 1;
+        color: var(--chocolate-kisses);
     }
 
-    @keyframes logoFloat {
-        0%, 100% {
-            transform: translateY(0px);
-        }
-        50% {
-            transform: translateY(-4px);
-        }
-    }
-
+    /* Responsive adjustments */
     @media (max-width: 480px) {
+        .main .block-container {
+            padding: 12px 16px 96px 16px;
+        }
+
         .hero-title {
-            font-size: 1.8rem;
+            font-size: 1.4rem;
         }
 
         .prediction-value,
-        .stage-word,
-        .timer-value {
-            font-size: 1.7rem;
+        .stage-word {
+            font-size: 1.5rem;
         }
 
-        .main .block-container {
-            padding-left: 0.9rem;
-            padding-right: 0.9rem;
-            padding-bottom: 7.6rem;
+        .timer-value {
+            font-size: 1.75rem;
         }
 
         .nav-wrap {
-            width: min(410px, calc(100vw - 16px));
-            bottom: 8px;
-            padding: 12px 14px;
-            border-radius: 24px;
-        }
-
-        .bottom-nav-grid {
-            gap: 12px;
+            width: calc(100vw - 24px);
+            bottom: 12px;
+            padding: 6px 10px;
+            border-radius: 20px;
         }
 
         .bottom-nav-link {
-            width: 52px;
-            height: 52px;
-            border-radius: 16px;
+            height: 48px;
+            border-radius: 14px;
         }
 
-        .bottom-nav-icon {
-            font-size: 1.7rem;
+        .bottom-nav-icon svg {
+            width: 20px;
+            height: 20px;
         }
 
         video {
-            width: 84% !important;
-            max-width: 300px !important;
+            max-width: 260px !important;
         }
 
         .logo-image-box {
-            width: 90px;
-            height: 90px;
+            width: 64px;
+            height: 64px;
         }
     }
 </style>
@@ -857,8 +872,8 @@ if LOGO_PATH.exists():
 st.markdown(
     """
     <div class="top-brand">
-        <div class="brand-title">Linguista 🤲</div>
-        <div class="brand-sub">Practice sign language in a playful, mobile-friendly way.</div>
+        <div class="brand-title">Linguista</div>
+        <div class="brand-sub">Learn sign language the fun way</div>
     </div>
     """,
     unsafe_allow_html=True,
@@ -872,14 +887,19 @@ if st.session_state.page == "home":
     st.markdown(
         """
         <div class="hero-card">
-            <div class="hero-title">Learn sign language<br>the fun way ✨</div>
+            <div class="hero-title">Practice with AI-powered detection</div>
             <div class="hero-text">
-                Practice with live AI detection and playful mini challenges.
-                It’s friendly, simple, and designed to feel good on your phone.
+                Get instant feedback as you learn. Start with Freestyle mode to explore, 
+                or challenge yourself in Stage Mode.
             </div>
         </div>
         """,
         unsafe_allow_html=True,
+    )
+
+    card(
+        "Choose your mode",
+        "Freestyle lets you practice freely. Stage Mode gives you challenges to complete.",
     )
 
     card(
@@ -896,7 +916,7 @@ if st.session_state.page == "home":
         app_link("Stage Mode", "stage", "stage-link")
 
     st.markdown(
-        '<div class="tiny-note">Tip: try to center yourself for an accurate prediction!</div>',
+        '<div class="tiny-note">Tip: Center yourself in the frame for best results</div>',
         unsafe_allow_html=True,
     )
 
@@ -907,7 +927,7 @@ if st.session_state.page == "home":
 elif st.session_state.page == "demo":
     st_autorefresh(interval=1800, key="prediction_refresh")
 
-    pill("Freestyle 🎥")
+    pill("Freestyle")
 
     back_col, title_col = st.columns([0.28, 0.72])
 
@@ -921,7 +941,7 @@ elif st.session_state.page == "demo":
             """
             <div class="card" style="padding:12px 16px;">
                 <div class="card-title">Freestyle Detection</div>
-                <div class="card-body">Show your sign to the camera and let the model guess it ✨</div>
+                <div class="card-body">Show your sign to the camera</div>
             </div>
             """,
             unsafe_allow_html=True,
@@ -961,9 +981,9 @@ elif st.session_state.page == "demo":
             </div>
             """,
             unsafe_allow_html=True,
-        )
+)
 
-        card("Top 3 guesses 💫", "The model’s favorite guesses right now.")
+        card("Top predictions", "Most likely signs detected")
 
         if result.get("top3"):
             for item in result["top3"]:
@@ -977,10 +997,10 @@ elif st.session_state.page == "demo":
                     unsafe_allow_html=True,
                 )
         else:
-            card("Warming up ⏳", "Hold your sign a little longer so the model can collect enough frames.")
+            card("Warming up", "Hold your sign a bit longer")
 
     else:
-        card("Camera not started yet 📷", "Tap Start above to begin freestyle mode.")
+        card("Camera not started", "Tap Start above to begin")
 
 
 # =========================
@@ -996,7 +1016,7 @@ elif st.session_state.page == "stage":
     progress_text = f"Stage {st.session_state.stage_index + 1} / {len(STAGES)}"
     camera_key = f"stage-detection-{st.session_state.stage_index}"
 
-    pill("Stage Mode 🎮", "yellow")
+    pill("Stage Mode", "yellow")
 
     nav1, nav2 = st.columns([0.28, 0.72])
 
@@ -1012,7 +1032,7 @@ elif st.session_state.page == "stage":
             f"""
             <div class="card" style="padding:12px 16px;">
                 <div class="card-title">{progress_text}</div>
-                <div class="card-body">Match the target sign before time runs out 💪</div>
+                <div class="card-body">Match the target sign before time runs out</div>
             </div>
             """,
             unsafe_allow_html=True,
@@ -1030,7 +1050,7 @@ elif st.session_state.page == "stage":
 
     if st.session_state.stage_status == "idle":
         show_stage_demo(demo_video, target_sign)
-        card("Ready? 🌟", "Watch the demo clip, then press Start and make the sign before the timer hits zero.")
+        card("Ready?", "Watch the demo, then press Start to begin")
 
         if st.button("Start Stage", use_container_width=True):
             start_stage()
@@ -1071,7 +1091,7 @@ elif st.session_state.page == "stage":
             st.markdown(
                 f"""
                 <div class="timer-box">
-                    <div class="card-title">Time left ⏰</div>
+                    <div class="card-title">Time left</div>
                     <div class="timer-value">{time_left}s</div>
                 </div>
                 """,
@@ -1104,17 +1124,17 @@ elif st.session_state.page == "stage":
                 unsafe_allow_html=True,
             )
 
-            pill("Go go go! 💨", "soft")
+            pill("Keep going", "soft")
 
         else:
-            card("Camera not started yet 📷", "Tap Start on the camera box above if your browser asks for permission.")
+            card("Camera not started", "Allow camera access to begin")
 
     elif st.session_state.stage_status == "passed":
         st.markdown(
             """
             <div class="timer-box">
-                <div class="card-title">Status ✅</div>
-                <div class="timer-value" style="font-size:1.35rem;">Correct hand sign ✅</div>
+                <div class="card-title">Status</div>
+                <div class="timer-value" style="font-size:1.35rem;">Correct!</div>
             </div>
             """,
             unsafe_allow_html=True,
@@ -1135,7 +1155,7 @@ elif st.session_state.page == "stage":
                 st.rerun()
         else:
             st.markdown(
-                """<div class="feedback-success">You cleared all stages! 🎉💖</div>""",
+                """<div class="feedback-success">You cleared all stages!</div>""",
                 unsafe_allow_html=True,
             )
 
@@ -1172,9 +1192,9 @@ elif st.session_state.page == "stage":
 nav_html = f"""
 <div class="nav-wrap">
     <div class="bottom-nav-grid">
-        {bottom_nav_item("🏠", "home", "home-link", active=(st.session_state.page == "home"))}
-        {bottom_nav_item("🎥", "demo", "demo-link", active=(st.session_state.page == "demo"))}
-        {bottom_nav_item("🎮", "stage", "stage-link-nav", active=(st.session_state.page == "stage"))}
+        {bottom_nav_item("home", "home", "home-link", active=(st.session_state.page == "home"))}
+        {bottom_nav_item("demo", "demo", "demo-link", active=(st.session_state.page == "demo"))}
+        {bottom_nav_item("stage", "stage", "stage-link-nav", active=(st.session_state.page == "stage"))}
     </div>
 </div>
 """
